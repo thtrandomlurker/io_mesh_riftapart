@@ -134,7 +134,7 @@ class ModelSubset:
             self.UVs.append((tuv[0] / 0x4000, -(tuv[1] / 0x4000)))
         f.seek(IndexOffset + (0x02 * StartIndex))
         for i in range(IndexCount//3):
-            indices = struct.unpack("<hhh", f.read(6))
+            indices = struct.unpack("<HHH", f.read(6))
             if Flags & 0x10:
                 self.Faces.append(indices)
             else:
