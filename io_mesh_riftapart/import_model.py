@@ -3,6 +3,7 @@ import bmesh
 import os
 import io
 import struct
+import mathutils
 
 # Define some things for easier reading
 # All of these were found by doesthisusername, don't forget to credit him
@@ -58,7 +59,7 @@ ZONE_SCRIPT_STRINGS = 4018550741
 MODEL_PHYSICS_DATA = 4023987816
 
 def ReadStringAtOffset(off, f):
-    print(off)
+    #print(off)
     pre = f.tell()
     f.seek(off)
     s = b""
@@ -74,9 +75,9 @@ def ReadStringAtOffset(off, f):
 ## FINALLY WORKING NORMALSSSSSSSSS
 def UnpackNormals(n):
     bits = format(n, 'b').zfill(32)
-    nZ = int(bits[1:12], 2)
+    nX = int(bits[1:12], 2)
     nY = int(bits[12:22], 2)
-    nX = int(bits[22:32], 2)
+    nZ = int(bits[22:32], 2)
     nX = (nX / 511.0) * 2 - 2
     nY = (nY / 511.0) * 2 - 2
     nZ = (nZ / 511.0) * 2 - 2
@@ -88,13 +89,11 @@ class Vertex:
         self.Normal = (0, 0, 0)
         self.Tangent = (0, 0, 0)
     def Read(self, f):
-        print(f.tell())
+        #print(f.tell())
         tPos = struct.unpack("<hhh", f.read(6))
         f.seek(2, 1)  # we don't need the w
         self.Position = (tPos[0] / 4096, -(tPos[2] / 4096), tPos[1] / 4096)  # Flip to Z Up
         self.Normal = UnpackNormals(struct.unpack("<I", f.read(4))[0])
-        if self.Position[1] < 0:
-            self.Normal = (self.Normal[0], self.Normal[1] * -1, self.Normal[2])
         f.seek(4, 1)  # the rest is tangents. blender can't hold tangents.
 
 class ModelSubset:
@@ -116,14 +115,15 @@ class ModelSubset:
         Flags = struct.unpack("<H", f.read(2))[0]
         self.MaterialIndex = struct.unpack("<H", f.read(2))[0]
         BindTableStartIdx = struct.unpack("<H", f.read(2))[0]
-        BindTableCount = struct.unpack("<H", f.read(2))[0]
+        BindTableCount = struct.unpack("<B", f.read(1))[0]
+        AfterBindTableCountUnk = struct.unpack("<B", f.read(1))[0]
         Unk02 = struct.unpack("<H", f.read(2))[0]
         Unk03 = f.read(1)[0]
         VertInfoTableCount = f.read(1)[0]
         SubsetUnks2 = f.read(16)
         pre = f.tell()
         f.seek(STDVertsOffset + (0x10 * StartVert))
-        print(f.tell())
+        #print(f.tell())
         for i in range(VertCount):
             v = Vertex()
             v.Read(f)
@@ -139,60 +139,53 @@ class ModelSubset:
                 self.Faces.append(indices)
             else:
                 self.Faces.append((indices[0] - StartVert, indices[1] - StartVert, indices[2] - StartVert))
-        #f.seek(SkinBatchOffset + (0x10 * BindTableStartIdx))
-        #for i in range(BindTableCount):
-        #    BindDataSetOffset = struct.unpack("<I", f.read(4))[0] + SkinDataOffset
-        #    f.seek(0x06, 1)
-        #    BonesPerVertex = struct.unpack("<H", f.read(2))[0]
-        #    VertexCount = struct.unpack("<H", f.read(2))[0]
-        #    VertexStartIndex = struct.unpack("<H", f.read(2))[0]
-        #    ret = f.tell()
-        #    f.seek(BindDataSetOffset)
-        #    if BonesPerVertex == 0:
-        #        for v in range(VertexCount):
-        #            self.BindIndices.append([f.read(1)[0]])
-        #            self.BindWeights.append([1.0])
-        #    elif BonesPerVertex == 1:
-        #        for v in range(VertexCount):
-        #            b1 = f.read(1)[0]
-        #            b2 = f.read(1)[0]
-        #            w1 = f.read(1)[0] / 256
-        #            w2 = f.read(1)[0] / 256
-        #            self.BindIndices.append([b1, b2])
-        #            self.BindWeights.append([w1, w2])
-        #    elif BonesPerVertex == 2:
-        #        for v in range(VertexCount):
-        #            b1 = f.read(1)[0]
-        #            b2 = f.read(1)[0]
-        #            b3 = f.read(1)[0]
-        #            b4 = f.read(1)[0]
-        #            w1 = f.read(1)[0] / 256
-        #            w2 = f.read(1)[0] / 256
-        #            w3 = f.read(1)[0] / 256
-        #            w4 = f.read(1)[0] / 256
-        #            self.BindIndices.append([b1, b2, b3, b4])
-        #            self.BindWeights.append([w1, w2, w3, w4])
-        #    elif BonesPerVertex == 3:
-        #        for v in range(VertexCount):
-        #            b1 = f.read(1)[0]
-        #            b2 = f.read(1)[0]
-        #            b3 = f.read(1)[0]
-        #            b4 = f.read(1)[0]
-        #            b5 = f.read(1)[0]
-        #            b6 = f.read(1)[0]
-        #            b7 = f.read(1)[0]
-        #            b8 = f.read(1)[0]
-        #            w1 = f.read(1)[0] / 256
-        #            w2 = f.read(1)[0] / 256
-        #            w3 = f.read(1)[0] / 256
-        #            w4 = f.read(1)[0] / 256
-        #            w5 = f.read(1)[0] / 256
-        #            w6 = f.read(1)[0] / 256
-        #            w7 = f.read(1)[0] / 256
-        #            w8 = f.read(1)[0] / 256
-        #            self.BindIndices.append([b1, b2, b3, b4, b5, b6, b7, b8])
-        #            self.BindWeights.append([w1, w2, w3, w4, w5, w6, w7, w8])
-        #    f.seek(ret)
+        if SkinBatchOffset != 0:
+            f.seek(SkinBatchOffset + (0x10 * BindTableStartIdx))
+            for i in range(BindTableCount):
+                print(f.tell(), "start here")
+                BindDataSetOffset = struct.unpack("<I", f.read(4))[0] + SkinDataOffset
+                f.seek(0x04, 1)
+                U01 = struct.unpack("<H", f.read(2))[0]
+                U02 = struct.unpack("<H", f.read(2))[0]
+                VertexCount = struct.unpack("<H", f.read(2))[0]
+                VertexStartIndex = struct.unpack("<H", f.read(2))[0]
+                print(VertexCount, VertexStartIndex)
+                ret = f.tell()
+                if SkinDataOffset != 0:
+                    f.seek(BindDataSetOffset)
+                    #print(BindDataSetOffset, "here")
+                    remainingVerts = VertexCount
+                    while True:
+                        BoneCount = f.read(1)[0]
+                        # all are chunked into groups of 16, but cuts off at the vertex count
+                        if BoneCount == 0:
+                            for i in range(16):
+                                index = f.read(1)[0]
+                                remainingVerts -= 1
+                                
+                                self.BindIndices.append([index])
+                                self.BindWeights.append([1.0])
+                                
+                                if remainingVerts <= 0:
+                                    break
+                        else:
+                            for i in range(16):
+                                index1 = f.read(1)[0]
+                                weight1 = f.read(1)[0] / 256
+                                tBoneIndices = [index1]
+                                tBoneWeights = [weight1]
+                                for b in range(BoneCount):
+                                    tBoneIndices.append(f.read(1)[0])
+                                    tBoneWeights.append(f.read(1)[0] / 256)
+                                self.BindIndices.append(tBoneIndices)
+                                self.BindWeights.append(tBoneWeights)
+                                remainingVerts -= 1
+                                
+                                if remainingVerts <= 0:
+                                    break
+                        if remainingVerts <= 0:
+                            break
+                    f.seek(ret)
         f.seek(pre)
 
 class JointInfo:
@@ -211,7 +204,7 @@ class JointInfo:
         self.TransformLocks = struct.unpack("<h", f.read(2))[0]
         self.NameHash = struct.unpack("<I", f.read(4))[0]
         self.BoneName = ReadStringAtOffset(struct.unpack("<I", f.read(4))[0], f)
-        print(self.BoneName)
+        #print(self.BoneName)
 
 class Model:
     def __init__(self, f):
@@ -224,7 +217,7 @@ class Model:
     def Read(self, f):
         Magic = f.read(4)
         Type = struct.unpack("<I", f.read(4))[0]
-        print(hex(Type))
+        #print(hex(Type))
         if Type != 0x882A03DC and Type != 0xB0519752:
             raise Exception("Invalid file: Not a model.")
         FileSize = struct.unpack("<I", f.read(4))[0]
@@ -252,7 +245,6 @@ class Model:
         BindPoseSize = 0
         for i in range(SectionCount):
             SectionType = struct.unpack("<I", f.read(4))[0]
-            print(SectionType)
             if SectionType == MODEL_SUBSET:
                 SubsetOffset = struct.unpack("<I", f.read(4))[0]
                 SubsetSize = struct.unpack("<I", f.read(4))[0]
@@ -271,9 +263,10 @@ class Model:
             elif SectionType == MODEL_POLYELEMENT:
                 PolyElementOffset = struct.unpack("<I", f.read(4))[0]
                 PolyElementSize = struct.unpack("<I", f.read(4))[0]
-            #elif SectionType == MODEL_SKIN_BATCH:
-            #    SkinBatchOffset = struct.unpack("<I", f.read(4))[0]
-            #    SkinBatchSize = struct.unpack("<I", f.read(4))[0]
+            elif SectionType == MODEL_SKIN_BATCH:
+                SkinBatchOffset = struct.unpack("<I", f.read(4))[0]
+                SkinBatchSize = struct.unpack("<I", f.read(4))[0]
+                print("ModelSkinBatch Exists: ", SkinBatchOffset)
             elif SectionType == MODEL_JOINT:
                 JointInfoOffset = struct.unpack("<I", f.read(4))[0]
                 JointInfoSize = struct.unpack("<I", f.read(4))[0]
@@ -303,16 +296,19 @@ class Model:
                 jnt = JointInfo()
                 jnt.Read(f)
                 self.Joints.append(jnt)
-        #if BindPoseOffset != 0:  # has bone matrices. read and make bones. we skip because i have no clue how to make this functional
-        #    f.seek(BindPoseOffset)
-        #    for i in range(len(self.Joints)):  # because the size of the bind pose includes other data. likely inverse bind pose matrices.
-        #        scale = struct.unpack("<ffff", f.read(16))
-        #        rot = struct.unpack("<ffff", f.read(16))
-        #        pos = struct.unpack("<ffff", f.read(16))
-        #        nPos = pos
-        #        if self.Joints[i].Parent != -1:
-        #            nPos = [pos[0] + self.BindPose[self.Joints[i].Parent][2][0], pos[1] + self.BindPose[self.Joints[i].Parent][2][1], pos[2] + self.BindPose[self.Joints[i].Parent][2][2], pos[3] + self.BindPose[self.Joints[i].Parent][2][3]]
-        #        self.BindPose.append([scale, rot, nPos])
+        if BindPoseOffset != 0:  # has bone matrices. read and make bones. we skip because i have no clue how to make this functional
+            f.seek(BindPoseOffset + (0x30 * len(self.Joints)))  # skip the bind pose, grab the inverse bind pose
+            if f.tell() % 64 != 0:
+                f.seek(64 - (f.tell() % 64), 1) # to align ourselves
+            #print("invBindPosePos", f.tell())
+            for i in range(len(self.Joints)):  # because the size of the bind pose includes other data. likely inverse bind pose matrices.
+                r1 = struct.unpack("<ffff", f.read(16))
+                r2 = struct.unpack("<ffff", f.read(16))
+                r3 = struct.unpack("<ffff", f.read(16))
+                r4 = struct.unpack("<ffff", f.read(16))
+                #print(self.Joints[i].BoneName)
+                mat = mathutils.Matrix([r1, r2, r3, r4])
+                self.BindPose.append(mat)
 
 
 def ReadModelFile(context, filepath):
@@ -320,6 +316,23 @@ def ReadModelFile(context, filepath):
         # removed compression check code since game contents are seemingly entirely uncompressed
         f.seek(0)
         mdlDat = Model(f)
+        bpy.ops.object.armature_add(enter_editmode=True, location=(0, 0, 0))
+        arm = bpy.context.active_object
+        for idx, joint in enumerate(mdlDat.Joints):
+            #print(joint.BoneName)
+            try:
+                mtx = mdlDat.BindPose[idx].inverted()
+            except:
+                mtx = mdlDat.BindPose[idx]
+            mtx.transpose()
+            loc, rot, sca = mtx.decompose()
+            bone = bpy.context.active_object.data.edit_bones.new(joint.BoneName)
+            bone.head = [loc[0], -loc[2], loc[1]]
+            bone.tail = bone.head
+            bone.tail[2] += 0.01
+            if joint.Parent != -1:
+                bone.parent = bpy.context.active_object.data.edit_bones[mdlDat.Joints[joint.Parent].BoneName]
+        bpy.context.active_object.data.edit_bones.remove(bpy.context.active_object.data.edit_bones["Bone"])
         for idx, Mesh in enumerate(mdlDat.Meshes):
             mesh = bpy.data.meshes.new(f"{os.path.split(filepath)[1].split('.')[0]}-subset{idx}")
             # check for material. make if it doesn't exist.
@@ -351,14 +364,20 @@ def ReadModelFile(context, filepath):
             mesh.use_auto_smooth = True
             #mesh.normals_split_custom_set_from_vertices(Normals)
             obj = bpy.data.objects.new(f"{os.path.split(filepath)[1].split('.')[0]}-subset{idx}", mesh)
+            #obj.location=location
+            #obj.rotation_euler=rotation  # intentionally wrong to make it stop
+            #obj.scale=scale
             # add vertex groups
-            #for i in range(len(Mesh.BindIndices)):
-            #    for idx, Bone in enumerate(Mesh.BindIndices[i]):
-            #        group = obj.vertex_groups.get(mdlDat.Joints[Bone].BoneName)
-            #        if group == None:
-            #            group = obj.vertex_groups.new(name=mdlDat.Joints[Bone].BoneName)
-            #        # now we have the group. add the vert
-            #        group.add([i], Mesh.BindWeights[i][idx], 'ADD')
-            bpy.context.scene.collection.objects.link(obj)
+            for i in range(len(Mesh.BindIndices)):
+                for idx, Bone in enumerate(Mesh.BindIndices[i]):
+                    group = obj.vertex_groups.get(mdlDat.Joints[Bone].BoneName)
+                    if group == None:
+                        group = obj.vertex_groups.new(name=mdlDat.Joints[Bone].BoneName)
+                    # now we have the group. add the vert
+                    group.add([i], Mesh.BindWeights[i][idx], 'ADD')
+            obj.parent = arm
+            armModifier = obj.modifiers.new(name='Armature', type='ARMATURE')
+            armModifier.object = arm
+            bpy.context.collection.objects.link(obj)
 
     return {'FINISHED'}
