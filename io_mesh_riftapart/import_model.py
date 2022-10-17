@@ -30,6 +30,7 @@ MODEL_PARENT_IDS = 1255696229
 LEVEL_ZONES_BUILT = 1308768096
 MODEL_POLYELEMENT = 1407861363
 CONFIG_ASSET_REFS = 1488475530
+MODEL_COL_VERT = 1555733993
 ZONE_SCRIPT_ACTIONS = 1582607567
 ZONE_DECAL_GEOMETRY = 1702171323
 ZONE_MODEL_INSTS = 1770516850
@@ -95,17 +96,18 @@ class Vertex:
         self.Position = (tPos[0] / 4096, -(tPos[2] / 4096), tPos[1] / 4096)  # Flip to Z Up
         self.Normal = UnpackNormals(struct.unpack("<I", f.read(4))[0])
         tUV = struct.unpack("<hh", f.read(4))
-        self.UV = (tUV[0] / 4096, -tUV[1] / 4096)
+        self.UV = (tUV[0] / 0x8000, -tUV[1] / 0x8000)
 
 class ModelSubset:
     def __init__(self):
         self.Vertices = []
         self.UVs = []
+        self.Colors = []
         self.Faces = []
         self.BindIndices = []
         self.BindWeights = []
         self.MaterialIndex = -1
-    def Read(self, f, STDVertsOffset, TEXVertsOffset, IndexOffset, SkinBatchOffset, SkinDataOffset):
+    def Read(self, f, STDVertsOffset, TEXVertsOffset, COLVertsOffset, IndexOffset, SkinBatchOffset, SkinDataOffset):
         SubsetUnks = f.read(12)
         ExtraUnks = f.read(8)
         StartVert = struct.unpack("<I", f.read(4))[0]
@@ -133,7 +135,19 @@ class ModelSubset:
             f.seek(TEXVertsOffset + (0x04 * StartVert))
             for i in range(VertCount):
                 tuv = struct.unpack("<hh", f.read(4))
-                self.UVs.append((tuv[0] / 0x4000, -(tuv[1] / 0x4000)))
+                self.UVs.append((tuv[0] / 0x8000, -(tuv[1] / 0x8000)))
+        else:
+            for i in range(VertCount):
+                self.UVs.append((0.0, 0.0))
+        if COLVertsOffset != 0:
+            f.seek(COLVertsOffset + (0x04 * StartVert))
+            for i in range(VertCount):
+                tCol = struct.unpack("BBBB", f.read(4))
+                self.Colors.append((tCol[0] / 255, tCol[1] / 255, tCol[2] / 255, tCol[3] / 255))
+        else:
+            for i in range(VertCount):
+                self.Colors.append((1.0, 1.0, 1.0, 1.0))
+            
         f.seek(IndexOffset + (0x02 * StartIndex))
         for i in range(IndexCount//3):
             indices = struct.unpack("<HHH", f.read(6))
@@ -228,6 +242,8 @@ class Model:
         STDVertsSize = 0
         TEXVertsOffset = 0
         TEXVertsSize = 0
+        COLVertsOffset = 0
+        COLVertsSize = 0
         IndexOffset = 0
         IndexSize = 0
         SubsetOffset = 0
@@ -254,6 +270,9 @@ class Model:
             elif SectionType == MODEL_SUBSET:
                 SubsetOffset = struct.unpack("<I", f.read(4))[0]
                 SubsetSize = struct.unpack("<I", f.read(4))[0]
+            elif SectionType == MODEL_COL_VERT:
+                COLVertsOffset = struct.unpack("<I", f.read(4))[0]
+                COLVertsSize = struct.unpack("<I", f.read(4))[0]
             elif SectionType == MODEL_STD_VERT:
                 STDVertsOffset = struct.unpack("<I", f.read(4))[0]
                 STDVertsSize = struct.unpack("<I", f.read(4))[0]
@@ -304,7 +323,7 @@ class Model:
             f.seek(SubsetOffset)
             while f.tell() < SubsetOffset + SubsetSize:
                 Mesh = ModelSubset()
-                Mesh.Read(f, STDVertsOffset, TEXVertsOffset, IndexOffset, SkinBatchOffset, SkinDataOffset)
+                Mesh.Read(f, STDVertsOffset, TEXVertsOffset, COLVertsOffset, IndexOffset, SkinBatchOffset, SkinDataOffset)
                 self.Meshes.append(Mesh)
         if JointInfoOffset != 0:  # get joint info for skinning data
             f.seek(JointInfoOffset)
@@ -316,10 +335,9 @@ class Model:
             # calculate position
             Position = 0x30 * len(self.Joints)
             if Position % 64 != 0:
-                Position = Position + (64 - (f.tell() % 64))
+                Position = Position + (64 - (Position % 64))
             # Position is now aligned within the joint buffer
             f.seek(BindPoseOffset + Position)  # skip the bind pose, grab the inverse bind pose
-            print(f.tell())
             #print("invBindPosePos", f.tell())
             for i in range(len(self.Joints)):  # because the size of the bind pose includes other data. likely inverse bind pose matrices.
                 r1 = struct.unpack("<ffff", f.read(16))
@@ -361,7 +379,9 @@ def ReadModelFile(context, filepath):
             #    mat = bpy.data.materials.new(name=mdlDat.Materials[Mesh.MaterialIndex])
             #mesh.materials.append(mat)  # add the mat to the mesh
             bm = bmesh.new()
-            uv = bm.loops.layers.uv.new()  # init the uv map
+            vertUV = bm.loops.layers.uv.new("VertexUV")  # init the per-vert UVs
+            sectionUV = bm.loops.layers.uv.new("SectionUV")  # and the Section UVs
+            col = bm.loops.layers.color.new("VertexColor")
             Normals = []
             for Vertex in Mesh.Vertices:
                 v = bm.verts.new(Vertex.Position)
@@ -376,7 +396,9 @@ def ReadModelFile(context, filepath):
                     continue
                 else:
                     for loop in face.loops:
-                        loop[uv].uv = Mesh.Vertices[loop.vert.index].UV
+                        loop[vertUV].uv = Mesh.Vertices[loop.vert.index].UV
+                        loop[sectionUV].uv = Mesh.UVs[loop.vert.index]
+                        loop[col] = Mesh.Colors[loop.vert.index]
                     face.smooth = True
                     #face.material_index = 0
             bm.to_mesh(mesh)
