@@ -75,12 +75,12 @@ def ReadStringAtOffset(off, f):
 ## FINALLY WORKING NORMALSSSSSSSSS
 def UnpackNormals(n):
     bits = format(n, 'b').zfill(32)
-    nX = int(bits[1:12], 2)
-    nY = int(bits[12:22], 2)
-    nZ = int(bits[22:32], 2)
+    nZ = int(bits[0:12], 2)  # 12 bits
+    nY = int(bits[12:22], 2) # 10 bits
+    nX = int(bits[22:32], 2) # 10 bits
     nX = (nX / 511.0) * 2 - 2
     nY = (nY / 511.0) * 2 - 2
-    nZ = (nZ / 511.0) * 2 - 2
+    nZ = (nZ / 2047.0) * 2 - 2
     return (nX, -nZ, nY)  # swap to X-ZY for Z UP
 
 class Vertex:
@@ -210,6 +210,7 @@ class Model:
     def __init__(self, f):
         self.Meshes = []
         self.Materials = []
+        self.LodInfo = []
         self.Joints = []  # temp. we just want to get the bone names
         self.BindPose = []  # list of the matrices that create the bind pose
         self.Read(f)
@@ -243,9 +244,14 @@ class Model:
         MaterialInfoSize = 0
         BindPoseOffset = 0
         BindPoseSize = 0
+        LookOffset = 0
+        LookSize = 0
         for i in range(SectionCount):
             SectionType = struct.unpack("<I", f.read(4))[0]
-            if SectionType == MODEL_SUBSET:
+            if SectionType == MODEL_LOOK:
+                LookOffset = struct.unpack("<I", f.read(4))[0]
+                LookSize = struct.unpack("<I", f.read(4))[0]
+            elif SectionType == MODEL_SUBSET:
                 SubsetOffset = struct.unpack("<I", f.read(4))[0]
                 SubsetSize = struct.unpack("<I", f.read(4))[0]
             elif SectionType == MODEL_STD_VERT:
@@ -284,6 +290,16 @@ class Model:
         #        MaterialFilePath = ReadStringAtOffset(struct.unpack("<Q", f.read(8))[0], f)
         #        MaterialName = ReadStringAtOffset(struct.unpack("<Q", f.read(8))[0], f)
         #        self.Materials.append(MaterialName)  # temporary. figure out materials proper and load them correctly later
+        if LookOffset != 0:
+            f.seek(LookOffset)
+            cLod = 0
+            while f.tell() < LookOffset + LookSize:
+                LodStart = struct.unpack("<H", f.read(2))[0]
+                LodCount = struct.unpack("<H", f.read(2))[0]
+                # build lod map
+                for i in range(LodCount):
+                    self.LodInfo.append(cLod)
+                cLod += 1
         if SubsetOffset != 0:  # has subsets. Should always execute
             f.seek(SubsetOffset)
             while f.tell() < SubsetOffset + SubsetSize:
@@ -334,7 +350,7 @@ def ReadModelFile(context, filepath):
                 bone.parent = bpy.context.active_object.data.edit_bones[mdlDat.Joints[joint.Parent].BoneName]
         bpy.context.active_object.data.edit_bones.remove(bpy.context.active_object.data.edit_bones["Bone"])
         for idx, Mesh in enumerate(mdlDat.Meshes):
-            mesh = bpy.data.meshes.new(f"{os.path.split(filepath)[1].split('.')[0]}-subset{idx}")
+            mesh = bpy.data.meshes.new(f"{os.path.split(filepath)[1].split('.')[0]}-subset{idx}-LOD_{mdlDat.LodInfo[idx]}")
             # check for material. make if it doesn't exist.
             #mat = bpy.data.materials.get(mdlDat.Materials[Mesh.MaterialIndex])
             #if mat == None:
@@ -363,7 +379,7 @@ def ReadModelFile(context, filepath):
             bm.free()
             mesh.use_auto_smooth = True
             #mesh.normals_split_custom_set_from_vertices(Normals)
-            obj = bpy.data.objects.new(f"{os.path.split(filepath)[1].split('.')[0]}-subset{idx}", mesh)
+            obj = bpy.data.objects.new(f"{os.path.split(filepath)[1].split('.')[0]}-subset{idx}-LOD_{mdlDat.LodInfo[idx]}", mesh)
             #obj.location=location
             #obj.rotation_euler=rotation  # intentionally wrong to make it stop
             #obj.scale=scale
