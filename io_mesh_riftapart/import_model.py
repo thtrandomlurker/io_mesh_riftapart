@@ -87,14 +87,15 @@ class Vertex:
     def __init__(self):
         self.Position = (0, 0, 0)
         self.Normal = (0, 0, 0)
-        self.Tangent = (0, 0, 0)
-    def Read(self, f):
+        self.UV = (0, 0)
+    def Read(self, f, scale=1):
         #print(f.tell())
         tPos = struct.unpack("<hhh", f.read(6))
         f.seek(2, 1)  # we don't need the w
         self.Position = (tPos[0] / 4096, -(tPos[2] / 4096), tPos[1] / 4096)  # Flip to Z Up
         self.Normal = UnpackNormals(struct.unpack("<I", f.read(4))[0])
-        f.seek(4, 1)  # the rest is tangents. blender can't hold tangents.
+        tUV = struct.unpack("<hh", f.read(4))
+        self.UV = (tUV[0] / 4096, -tUV[1] / 4096)
 
 class ModelSubset:
     def __init__(self):
@@ -128,10 +129,11 @@ class ModelSubset:
             v = Vertex()
             v.Read(f)
             self.Vertices.append(v)
-        f.seek(TEXVertsOffset + (0x04 * StartVert))
-        for i in range(VertCount):
-            tuv = struct.unpack("<hh", f.read(4))
-            self.UVs.append((tuv[0] / 0x4000, -(tuv[1] / 0x4000)))
+        if TEXVertsOffset != 0:
+            f.seek(TEXVertsOffset + (0x04 * StartVert))
+            for i in range(VertCount):
+                tuv = struct.unpack("<hh", f.read(4))
+                self.UVs.append((tuv[0] / 0x4000, -(tuv[1] / 0x4000)))
         f.seek(IndexOffset + (0x02 * StartIndex))
         for i in range(IndexCount//3):
             indices = struct.unpack("<HHH", f.read(6))
@@ -142,14 +144,12 @@ class ModelSubset:
         if SkinBatchOffset != 0:
             f.seek(SkinBatchOffset + (0x10 * BindTableStartIdx))
             for i in range(BindTableCount):
-                print(f.tell(), "start here")
                 BindDataSetOffset = struct.unpack("<I", f.read(4))[0] + SkinDataOffset
                 f.seek(0x04, 1)
                 U01 = struct.unpack("<H", f.read(2))[0]
                 U02 = struct.unpack("<H", f.read(2))[0]
                 VertexCount = struct.unpack("<H", f.read(2))[0]
                 VertexStartIndex = struct.unpack("<H", f.read(2))[0]
-                print(VertexCount, VertexStartIndex)
                 ret = f.tell()
                 if SkinDataOffset != 0:
                     f.seek(BindDataSetOffset)
@@ -313,9 +313,13 @@ class Model:
                 jnt.Read(f)
                 self.Joints.append(jnt)
         if BindPoseOffset != 0:  # has bone matrices. read and make bones. we skip because i have no clue how to make this functional
-            f.seek(BindPoseOffset + (0x30 * len(self.Joints)))  # skip the bind pose, grab the inverse bind pose
-            if f.tell() % 64 != 0:
-                f.seek(64 - (f.tell() % 64), 1) # to align ourselves
+            # calculate position
+            Position = 0x30 * len(self.Joints)
+            if Position % 64 != 0:
+                Position = Position + (64 - (f.tell() % 64))
+            # Position is now aligned within the joint buffer
+            f.seek(BindPoseOffset + Position)  # skip the bind pose, grab the inverse bind pose
+            print(f.tell())
             #print("invBindPosePos", f.tell())
             for i in range(len(self.Joints)):  # because the size of the bind pose includes other data. likely inverse bind pose matrices.
                 r1 = struct.unpack("<ffff", f.read(16))
@@ -372,7 +376,7 @@ def ReadModelFile(context, filepath):
                     continue
                 else:
                     for loop in face.loops:
-                        loop[uv].uv = Mesh.UVs[loop.vert.index]
+                        loop[uv].uv = Mesh.Vertices[loop.vert.index].UV
                     face.smooth = True
                     #face.material_index = 0
             bm.to_mesh(mesh)
