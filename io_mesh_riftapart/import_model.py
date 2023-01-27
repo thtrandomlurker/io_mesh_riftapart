@@ -5,6 +5,8 @@ import io
 import struct
 import mathutils
 
+VertexScale = 1.0
+
 # Define some things for easier reading
 # All of these were found by doesthisusername, don't forget to credit him
 DICT = 51707972
@@ -93,7 +95,7 @@ class Vertex:
         #print(f.tell())
         tPos = struct.unpack("<hhh", f.read(6))
         f.seek(2, 1)  # we don't need the w
-        self.Position = (tPos[0] / 4096, -(tPos[2] / 4096), tPos[1] / 4096)  # Flip to Z Up
+        self.Position = (tPos[0] * scale, -(tPos[2] * scale), tPos[1] * scale)  # Flip to Z Up
         self.Normal = UnpackNormals(struct.unpack("<I", f.read(4))[0])
         tUV = struct.unpack("<hh", f.read(4))
         self.UV = (tUV[0] / 0x8000, -tUV[1] / 0x8000)
@@ -129,7 +131,7 @@ class ModelSubset:
         #print(f.tell())
         for i in range(VertCount):
             v = Vertex()
-            v.Read(f)
+            v.Read(f, VertexScale)
             self.Vertices.append(v)
         if TEXVertsOffset != 0:
             f.seek(TEXVertsOffset + (0x04 * StartVert))
@@ -230,6 +232,7 @@ class Model:
         self.Read(f)
         
     def Read(self, f):
+        global VertexScale
         Magic = f.read(4)
         Type = struct.unpack("<I", f.read(4))[0]
         #print(hex(Type))
@@ -262,6 +265,8 @@ class Model:
         BindPoseSize = 0
         LookOffset = 0
         LookSize = 0
+        BuiltOffset = 0
+        BuiltSize = 0
         for i in range(SectionCount):
             SectionType = struct.unpack("<I", f.read(4))[0]
             if SectionType == MODEL_LOOK:
@@ -301,6 +306,9 @@ class Model:
             elif SectionType == MODEL_SKIN_BIND:
                 BindPoseOffset = struct.unpack("<I", f.read(4))[0]
                 BindPoseSize = struct.unpack("<I", f.read(4))[0]
+            elif SectionType == MODEL_BUILT:
+                BuiltOffset = struct.unpack("<I", f.read(4))[0]
+                BuiltSize = struct.unpack("<I", f.read(4))[0]
             else:
                 f.seek(8, 1)
         #if MaterialInfoOffset != 0:  # has materials. should also always execute in theory
@@ -309,6 +317,9 @@ class Model:
         #        MaterialFilePath = ReadStringAtOffset(struct.unpack("<Q", f.read(8))[0], f)
         #        MaterialName = ReadStringAtOffset(struct.unpack("<Q", f.read(8))[0], f)
         #        self.Materials.append(MaterialName)  # temporary. figure out materials proper and load them correctly later
+        if BuiltOffset != 0:
+            f.seek(BuiltOffset + 0x2C)
+            VertexScale = struct.unpack("<f", f.read(4))[0]
         if LookOffset != 0:
             f.seek(LookOffset)
             cLod = 0
