@@ -311,12 +311,13 @@ class Model:
                 BuiltSize = struct.unpack("<I", f.read(4))[0]
             else:
                 f.seek(8, 1)
-        #if MaterialInfoOffset != 0:  # has materials. should also always execute in theory
-        #    f.seek(MaterialInfoOffset)
-        #    while f.tell() < MaterialInfoOffset + MaterialInfoSize:
-        #        MaterialFilePath = ReadStringAtOffset(struct.unpack("<Q", f.read(8))[0], f)
-        #        MaterialName = ReadStringAtOffset(struct.unpack("<Q", f.read(8))[0], f)
-        #        self.Materials.append(MaterialName)  # temporary. figure out materials proper and load them correctly later
+        if MaterialInfoOffset != 0:  # has materials. should also always execute in theory
+            print("Materials at: ", MaterialInfoOffset)
+            f.seek(MaterialInfoOffset)
+            while f.tell() < MaterialInfoOffset + (MaterialInfoSize // 2):
+                MaterialFilePath = ReadStringAtOffset(struct.unpack("<Q", f.read(8))[0], f)
+                MaterialName = ReadStringAtOffset(struct.unpack("<Q", f.read(8))[0], f)
+                self.Materials.append(MaterialName)  # temporary. figure out materials proper and load them correctly later
         if BuiltOffset != 0:
             f.seek(BuiltOffset + 0x2C)
             VertexScale = struct.unpack("<f", f.read(4))[0]
@@ -385,10 +386,10 @@ def ReadModelFile(context, filepath):
         for idx, Mesh in enumerate(mdlDat.Meshes):
             mesh = bpy.data.meshes.new(f"{os.path.split(filepath)[1].split('.')[0]}-subset{idx}-LOD_{mdlDat.LodInfo[idx]}")
             # check for material. make if it doesn't exist.
-            #mat = bpy.data.materials.get(mdlDat.Materials[Mesh.MaterialIndex])
-            #if mat == None:
-            #    mat = bpy.data.materials.new(name=mdlDat.Materials[Mesh.MaterialIndex])
-            #mesh.materials.append(mat)  # add the mat to the mesh
+            mat = bpy.data.materials.get(mdlDat.Materials[Mesh.MaterialIndex])
+            if mat == None:
+                mat = bpy.data.materials.new(name=mdlDat.Materials[Mesh.MaterialIndex])
+            mesh.materials.append(mat)  # add the mat to the mesh
             bm = bmesh.new()
             vertUV = bm.loops.layers.uv.new("VertexUV")  # init the per-vert UVs
             sectionUV = bm.loops.layers.uv.new("SectionUV")  # and the Section UVs
@@ -411,7 +412,7 @@ def ReadModelFile(context, filepath):
                         loop[sectionUV].uv = Mesh.UVs[loop.vert.index]
                         loop[col] = Mesh.Colors[loop.vert.index]
                     face.smooth = True
-                    #face.material_index = 0
+                    face.material_index = 0
             bm.to_mesh(mesh)
             bm.free()
             mesh.use_auto_smooth = True
