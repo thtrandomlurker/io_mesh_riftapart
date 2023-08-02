@@ -236,7 +236,7 @@ class Model:
         Magic = f.read(4)
         Type = struct.unpack("<I", f.read(4))[0]
         #print(hex(Type))
-        if Type != 0x882A03DC and Type != 0xB0519752:
+        if Type != 0x882A03DC and Type != 0xB0519752 and Type != 0x9D2C0FA9:
             raise Exception("Invalid file: Not a model.")
         FileSize = struct.unpack("<I", f.read(4))[0]
         SectionCount = struct.unpack("<I", f.read(4))[0]
